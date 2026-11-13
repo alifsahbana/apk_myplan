@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_widgets.dart';
+import '../widgets/task_completion_experience.dart';
 
 /// Screen 3: Task Detail Screen
 class TaskDetailScreen extends StatefulWidget {
@@ -21,6 +22,8 @@ class TaskDetailScreen extends StatefulWidget {
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
   late TaskModel _task;
   late TextEditingController _notesController;
+  final TextEditingController _newSubtaskController = TextEditingController();
+  bool _isAddingSubtask = false;
 
   @override
   void initState() {
@@ -32,7 +35,19 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   @override
   void dispose() {
     _notesController.dispose();
+    _newSubtaskController.dispose();
     super.dispose();
+  }
+
+  void _addNewSubtask() {
+    final title = _newSubtaskController.text.trim();
+    if (title.isNotEmpty) {
+      context.read<TaskProvider>().addSubtaskToTask(_task.taskId, title);
+      _newSubtaskController.clear();
+      setState(() {
+        _isAddingSubtask = false;
+      });
+    }
   }
 
   void _updateTaskNotes(String newNotes) {
@@ -40,46 +55,21 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _task.notes = newNotes;
   }
 
-  /// Handles subtask toggle with celebration feedback
+  /// Handles subtask toggle — jika semua subtask selesai, tampilkan apresiasi
   Future<void> _handleSubtaskToggle(String taskId, String subtaskId) async {
     final provider = context.read<TaskProvider>();
+
+    // Ambil task sebelum toggle
+    final taskBefore = provider.tasks.firstWhere((t) => t.taskId == taskId, orElse: () => _task);
+    final wasAlreadyCompleted = taskBefore.isCompleted;
+
     final allDone = await provider.toggleSubtask(taskId, subtaskId);
     if (!mounted) return;
 
-    if (allDone) {
-      _task.isCompleted = true;
-      // Show celebration snackbar
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Text('🎉', style: TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  AppLocalizations.tr(
-                    'taskCompleted',
-                    Provider.of<LanguageProvider>(
-                      context,
-                      listen: false,
-                    ).currentLocale,
-                  ),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.primaryDark,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+    // Jika semua subtask selesai dan tugas baru saja selesai → tampilkan popup apresiasi
+    if (allDone && !wasAlreadyCompleted) {
+      final updatedTask = provider.tasks.firstWhere((t) => t.taskId == taskId, orElse: () => _task);
+      await TaskCompletionExperience.startFlow(context, updatedTask);
     }
   }
 
@@ -205,6 +195,38 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   Row(
                     children: [
                       EnergyTagWidget(level: currentTask.energyLevel),
+                      const SizedBox(width: 8),
+                      // Category badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceSoft,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppColors.brandBlue,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              currentTask.categoryName,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const Spacer(),
                       if (isDone)
                         Container(
@@ -213,16 +235,74 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFD3F9D8),
+                            color: currentTask.isCompletedLate
+                                ? const Color(0xFFFFF3DC)
+                                : const Color(0xFFD3F9D8),
                             borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: currentTask.isCompletedLate
+                                  ? const Color(0xFFE59900)
+                                  : const Color(0xFF2B8A3E),
+                              width: 0.6,
+                            ),
                           ),
-                          child: const Text(
-                            'Done',
+                          child: Text(
+                            currentTask.isCompletedLate ? AppLocalizations.tr('completedLate', lang) : AppLocalizations.tr('onTime', lang),
                             style: TextStyle(
-                              color: Color(0xFF2B8A3E),
+                              color: currentTask.isCompletedLate
+                                  ? const Color(0xFFB96B12)
+                                  : const Color(0xFF2B8A3E),
                               fontWeight: FontWeight.w600,
                               fontSize: 11,
                             ),
+                          ),
+                        )
+                      else if (currentTask.isApproachingDeadline)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3DC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE59900), width: 0.6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.access_time_rounded, size: 12, color: Color(0xFFB96B12)),
+                              const SizedBox(width: 3),
+                              Text(
+                                '${AppLocalizations.tr('deadlineApproach', lang)} < 30m (${currentTask.minutesUntilDeadline}m)',
+                                style: const TextStyle(
+                                  color: Color(0xFFB96B12),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (currentTask.isLate)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFE3E3),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFFA5252), width: 0.6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, size: 12, color: Color(0xFFC53D4B)),
+                              const SizedBox(width: 3),
+                              Text(
+                                '${AppLocalizations.tr('lateMinutes', lang)} ${currentTask.formattedLateDuration(lang)}',
+                                style: const TextStyle(
+                                  color: Color(0xFFC53D4B),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                     ],
@@ -247,7 +327,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '${currentTask.date.day}/${currentTask.date.month}/${currentTask.date.year}',
+                        '${AppLocalizations.tr('deadlineLabel', lang)} ${currentTask.date.day}/${currentTask.date.month}/${currentTask.date.year}',
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary,
@@ -271,6 +351,63 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       ],
                     ],
                   ),
+                  if (!currentTask.isCompleted && currentTask.isApproachingDeadline) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7E6),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFFD591)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.alarm, size: 18, color: Color(0xFFD46B08)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              lang == 'en'
+                                  ? 'Warning! Deadline in ${currentTask.minutesUntilDeadline} minutes. Please finish your activity!'
+                                  : 'Warning! Deadline kurang ${currentTask.minutesUntilDeadline} menit. Silakan selesaikan kegiatanmu!',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFD46B08),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else if (!currentTask.isCompleted && currentTask.isLate) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF1F0),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFFA39E)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFCF1322)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              lang == 'en'
+                                  ? 'Task is past deadline (${currentTask.formattedLateDurationFull('en')} ago). You can still complete it now.'
+                                  : 'Tugas telah melewati deadline (${currentTask.formattedLateDurationFull('id')} yang lalu). Anda tetap dapat menyelesaikannya sekarang.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFCF1322),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -435,6 +572,126 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
               );
             }),
+
+            const SizedBox(height: 8),
+
+            // ─── Add Subtask Field or Button ───
+            if (_isAddingSubtask)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.brandBlue, width: 1.2),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newSubtaskController,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: AppLocalizations.tr('newSubtaskHint', lang),
+                          hintStyle: const TextStyle(fontSize: 14, color: AppColors.textMuted),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+                        onSubmitted: (_) => _addNewSubtask(),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.check, color: AppColors.brandBlue),
+                      onPressed: _addNewSubtask,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppColors.textMuted),
+                      onPressed: () {
+                        setState(() {
+                          _isAddingSubtask = false;
+                          _newSubtaskController.clear();
+                        });
+                      },
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+              )
+            else
+              GestureDetector(
+                onTap: () => setState(() => _isAddingSubtask = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSoft,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.borderLight),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.add, size: 18, color: AppColors.brandBlueDark),
+                      const SizedBox(width: 6),
+                      Text(
+                        AppLocalizations.tr('addSubtaskBtn', lang),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.brandBlueDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 20),
+
+            // ─── Tombol Tandai Selesai / Batalkan ───
+            if (!isDone)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => TaskCompletionExperience.startFlow(context, currentTask),
+                  icon: const Icon(Icons.task_alt_rounded, size: 20),
+                  label: Text(
+                    AppLocalizations.tr('markDone', lang),
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brandBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                  ),
+                ),
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => TaskCompletionExperience.startFlow(context, currentTask),
+                  icon: const Icon(Icons.undo_rounded, size: 18),
+                  label: Text(
+                    AppLocalizations.tr('undoCompletion', lang),
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textSecondary,
+                    side: const BorderSide(color: AppColors.border),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 20),
 

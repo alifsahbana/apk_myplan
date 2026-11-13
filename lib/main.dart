@@ -15,6 +15,7 @@ import 'theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
+  await initializeDateFormatting('en_US', null);
   
   // Initialize database
   final database = AppDatabase();

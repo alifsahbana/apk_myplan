@@ -1,6 +1,9 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/language_provider.dart';
+import '../l10n/app_localizations.dart';
 import '../screens/home_screen.dart';
 import '../screens/calendar_screen.dart';
 import '../screens/profile_screen.dart';
@@ -135,6 +138,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final currentIndex = _getCurrentIndex(context);
+    final lang = context.watch<LanguageProvider>().currentLocale;
 
     return Scaffold(
       body: widget.child,
@@ -159,9 +163,9 @@ class _MainShellState extends State<MainShell> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _navItem(0, currentIndex, Icons.today_outlined, Icons.today, 'Beranda'),
-                _navItem(1, currentIndex, Icons.calendar_month_outlined, Icons.calendar_month, 'Kalender'),
-                _navItem(2, currentIndex, Icons.person_outline, Icons.person, 'Profil'),
+                _navItem(0, currentIndex, Icons.today_outlined, Icons.today, AppLocalizations.tr('navToday', lang)),
+                _navItem(1, currentIndex, Icons.calendar_month_outlined, Icons.calendar_month, AppLocalizations.tr('navCalendar', lang)),
+                _navItem(2, currentIndex, Icons.person_outline, Icons.person, AppLocalizations.tr('navProfile', lang)),
               ],
             ),
           ),
